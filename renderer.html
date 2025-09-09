@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>IE11 3D Canvas - Fixed</title>
+<style>
+	html, body {margin:0;padding:0;width:100%;height:100%;background:#000;overflow:hidden}
+	#c {width:100%;height:100%;display:block}
+	#info {position:absolute;top:8px;left:8px;color:#0f0;font:14px monospace;background:rgba(0,0,0,.45);padding:4px 6px}
+</style>
+</head>
+<body>
+<canvas id="c" width="320" height="240"></canvas>
+<div id="info"></div>
+<script>
+(function(){
+	var cv=document.getElementById("c"),ctx=cv.getContext("2d"),info=document.getElementById("info")
+	var scale=50
+	var cam={x:0,y:0,z:-400,f:400,cx:cv.width/2,cy:cv.height/2,pitch:0,yaw:0,roll:0}
+	cam.aspect=cv.width/cv.height
+	var wire=false,shapeIdx=0,fps=0
+
+	var cube=[
+		{x:-1*scale,y:-1*scale,z:-1*scale},{x:1*scale,y:-1*scale,z:-1*scale},
+		{x:1*scale,y:1*scale,z:-1*scale},{x:-1*scale,y:1*scale,z:-1*scale},
+		{x:-1*scale,y:-1*scale,z:1*scale},{x:1*scale,y:-1*scale,z:1*scale},
+		{x:1*scale,y:1*scale,z:1*scale},{x:-1*scale,y:1*scale,z:1*scale}
+	]
+	var faces=[[0,1,2,3],[4,5,6,7],[0,1,5,4],[2,3,7,6],[0,3,7,4],[1,2,6,5]]
+
+	var pyr=[
+		{x:0,y:-1*scale,z:0},
+		{x:-1*scale,y:1*scale,z:-1*scale},{x:1*scale,y:1*scale,z:-1*scale},
+		{x:1*scale,y:1*scale,z:1*scale},{x:-1*scale,y:1*scale,z:1*scale}
+	]
+	var pf=[[1,2,0],[2,3,0],[3,4,0],[4,1,0],[1,4,3,2]]
+
+	var shapes=[
+		{vertices:cube,faces:faces,name:"Cube"},
+		{vertices:pyr,faces:pf,name:"Pyramid"}
+	]
+
+	function proj(p){
+		let x = p.x - cam.x;
+		let y = p.y - cam.y;
+		let z = p.z - cam.z;
+		
+		let cosY = Math.cos(cam.yaw), sinY = Math.sin(cam.yaw);
+		let cosX = Math.cos(cam.pitch), sinX = Math.sin(cam.pitch);
+		let cosZ = Math.cos(cam.roll), sinZ = Math.sin(cam.roll);
+		
+		let x1 = x * cosY - z * sinY;
+		let z1 = x * sinY + z * cosY;
+		
+		let y1 = y * cosX - z1 * sinX;
+		let z2 = y * sinX + z1 * cosX;
+		
+		let x2 = x1 * cosZ - y1 * sinZ;
+		let y2 = x1 * sinZ + y1 * cosZ;
+		
+		if(z2 < 1) z2 = 1;
+		let f = cam.f / z2;
+		return { x: x2 * f + cam.cx, y: -y2 * f * cam.aspect + cam.cy, z: z2 };
+	}
+
+	function drawFace(verts,col){
+		if(verts.length<3)return
+		ctx.beginPath()
+		var v0=proj(verts[0])
+		ctx.moveTo(v0.x,v0.y)
+		for(var i=1;i<verts.length;i++){
+			var pv=proj(verts[i]);
+			ctx.lineTo(pv.x,pv.y)
+		}
+		ctx.closePath()
+		if(wire){ctx.strokeStyle=col;ctx.stroke()}else{ctx.fillStyle=col;ctx.fill();ctx.strokeStyle="#333";ctx.stroke()}
+	}
+
+	function faceZ(face,verts){
+		var cz=0
+		for(var i=0;i<face.length;i++){
+			cz+=proj(verts[face[i]]).z
+		}
+		return cz/face.length
+	}
+
+	function render(){
+		ctx.fillStyle="#000";ctx.fillRect(0,0,cv.width,cv.height)
+		var s=shapes[shapeIdx],depth=[]
+		for(var i=0;i<s.faces.length;i++){depth.push({i:i,d:faceZ(s.faces[i],s.vertices)})}
+		depth.sort(function(a,b){return b.d-a.d})
+		var cols=["#ff6b6b","#4ecdc4","#45b7d1","#96ceb4","#feca57","#ff9ff3"]
+		for(var k=0;k<depth.length;k++){
+			var fi=depth[k].i,f=s.faces[fi],verts=[];
+			for(var j=0;j<f.length;j++)verts.push(s.vertices[f[j]]);
+			drawFace(verts,wire?"#0f0":cols[fi%cols.length])
+		}
+	}
+
+	var frame=0,last=Date.now()
+	function loop(){
+		render();frame++
+		var now=Date.now()
+		if(now-last>=1000){fps=Math.round(frame*1000/(now-last));frame=0;last=now}
+		info.innerText=shapes[shapeIdx].name+" | "+(wire?"Wire":"Solid")+" | "+fps+" fps | P:"+cam.pitch.toFixed(2)+" Y:"+cam.yaw.toFixed(2)
+		setTimeout(loop,16)
+	}
+
+	window.changeShape=function(){shapeIdx=(shapeIdx+1)%shapes.length}
+	window.toggleWire=function(){wire=!wire}
+	window.moveCamera=function(dx,dy,dz){
+		cam.y += dy;
+		
+		var cosY = Math.cos(cam.yaw);
+		var sinY = Math.sin(cam.yaw);
+		
+		// Forward/back (dz) moves along look direction
+		// Left/right (dx) moves perpendicular to look direction
+		cam.x += dx * cosY + dz * sinY;
+		cam.z += -dx * sinY + dz * cosY;
+	}
+	window.rotateCamera=function(dp, dy, dr) {
+		cam.pitch += dp; 
+		cam.yaw += dy; 
+		cam.roll += dr; 
+		const MAX_PITCH = Math.PI/2 - 0.01; 
+		if (cam.pitch > MAX_PITCH) cam.pitch = MAX_PITCH; 
+		if (cam.pitch < -MAX_PITCH) cam.pitch = -MAX_PITCH;
+	}
+
+	loop()
+})()
+</script>
+</body>
+</html>
